@@ -1,1 +1,1 @@
-from .Taylor import *
+from .TaylorDiagram import *
