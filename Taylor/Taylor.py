@@ -1,0 +1,325 @@
+import numpy as np
+import pandas as pd
+from typing import Union
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+from warnings import filterwarnings
+from matplotlib.projections import PolarAxes
+import mpl_toolkits.axisartist.grid_finder as gf
+import mpl_toolkits.axisartist.floating_axes as fa
+filterwarnings('ignore')
+
+
+class TaylorDiagram(object):
+    ''' 
+    These class is adapted from:
+    https://gist.github.com/p3jitnath/1d9e879881605a91e05f9afc1089e53f
+    '''
+    def __init__(self, STD, fig=None, rect=111, label='plot', 
+                 color_grid:str='black', linestyle_grid:str='--', 
+                 linewidth_grid:float=0.1, grid_alpha:float=0.5,
+                 font_family:str='serif', font_size:int=10, 
+                 font_weight:str='normal',
+                 positive_only:bool=False,
+                 title: str = None):
+        self.STD = STD
+        self.smin = 0.0
+        self.smax = 1.5 * self.STD
+        self.positive_only = positive_only
+                
+        tr = PolarAxes.PolarTransform()
+        
+        if positive_only:
+            rlocs = np.array([0.0, 0.2, 0.4, 0.6, 0.8, 0.9, 0.95, 0.99, 1.0])
+            extremes = (0, np.pi/2, self.smin, self.smax) 
+        else:
+            self.smin = -0.01
+            positive_rlocs = np.array([0.0, 0.2, 0.4, 0.6, 0.8, 0.9, 0.95, 0.99])
+            negative_rlocs = np.array([-0.2, -0.4, -0.6, -0.8, -0.9, -0.95, -0.99, -1.0])
+            rlocs = np.concatenate([negative_rlocs, positive_rlocs])
+            extremes = (0, np.pi, self.smin, self.smax)
+        
+        tlocs = np.arccos(rlocs)
+        gl1 = gf.FixedLocator(tlocs)
+        tf1 = gf.DictFormatter(dict(zip(tlocs, map(str, rlocs))))
+        
+        gh = fa.GridHelperCurveLinear(
+            tr,
+            extremes=extremes,
+            grid_locator1=gl1,
+            tick_formatter1=tf1
+        )
+        
+        if fig is None:
+            fig = plt.figure(figsize=(8, 6) if positive_only else (12, 8))  # Tamanho diferente para positive_only
+        
+        ax = fa.FloatingSubplot(fig, rect, grid_helper=gh)
+        fig.add_subplot(ax)
+        ax.axis['right'].set_axis_direction('top')
+        ax.axis['left'].set_axis_direction('bottom')
+    
+        
+        if positive_only:
+            ax.axis['top'].set_axis_direction('bottom')
+            ax.axis['top'].major_ticklabels.set_axis_direction('top')
+            ax.axis['top'].toggle(ticklabels=True, label=True)
+            ax.axis['bottom'].toggle(ticklabels=False, label=False)
+            ax.axis['right'].toggle(ticklabels=False, label=False)
+            ax.axis['left'].toggle(ticklabels=True, label=True)
+            ax.set_position([0.1, 0.1, 0.7, 0.7])  # [left, bottom, width, height]
+        else:
+            for kind in ['top','right']: 
+                ax.axis[kind].toggle(ticklabels=True, label=True)
+            
+            # ax.axis['right'].set_axis_direction('top')
+            ax.axis['left'].set_axis_direction('bottom')
+            ax.axis['top'].set_axis_direction('bottom')
+            ax.axis['top'].major_ticklabels.set_axis_direction('top')
+            ax.axis['right'].major_ticklabels.set_axis_direction('bottom')
+
+        # Aplicar configurações de fonte
+        kinds = ['top', 'bottom', 'right', 'left']
+        for kind in kinds:
+            ax.axis[kind].major_ticklabels.set_fontname(font_family)
+            ax.axis[kind].major_ticklabels.set_fontsize(font_size)
+            ax.axis[kind].major_ticklabels.set_fontweight(font_weight)
+
+        ax.grid(color=color_grid, linestyle=linestyle_grid, 
+                linewidth=linewidth_grid, alpha=grid_alpha)
+        
+        self._ax = ax
+        self.ax = ax.get_aux_axes(tr)
+        if title:
+            self._ax.set_title(title, fontfamily=font_family, 
+                             fontsize=font_size+2, fontweight='bold',
+                             pad=20)  # pad adiciona espaço extra
+        # Adicionar label para o eixo de correlação (ângulo)
+        ylabel,xlabel =  'Correlation Coeficient', 'Standard Value'
+        if ylabel:  # Se quiser um label para correlação
+            if positive_only:
+                self._ax.axis['top'].label.set_text('')
+                self._ax.annotate(ylabel, 
+                                xy=(0.72, 0.64),  # Coordenadas em fração da figura (0-1)
+                                xycoords='axes fraction',
+                                fontfamily=font_family,
+                                fontsize=font_size,
+                                fontweight='bold',
+                                ha='center',  # Alinhamento horizontal centralizado
+                                va='bottom', 
+                                rotation=315) 
+            else:
+                self._ax.axis['top'].label.set_text('')
+                self._ax.annotate(ylabel, 
+                                xy=(0.85, 0.72),  # Coordenadas em fração da figura (0-1)
+                                xycoords='axes fraction',
+                                fontfamily=font_family,
+                                fontsize=font_size,
+                                fontweight='bold',
+                                ha='center',  # Alinhamento horizontal centralizado
+                                va='bottom', 
+                                rotation=320)
+        if xlabel:
+            self._ax.axis['top'].label.set_text('')
+            self._ax.annotate(xlabel, 
+                            xy=(0.5, -0.07),  # Coordenadas em fração da figura (0-1)
+                            xycoords='axes fraction',
+                            fontfamily=font_family,
+                            fontsize=font_size,
+                            fontweight='bold',
+                            ha='center',  # Alinhamento horizontal centralizado
+                            va='bottom')
+        
+        l, = self.ax.plot([0], self.STD, 'k*', ls='', ms=8, label=label)
+        
+        if positive_only:
+            t = np.linspace(0, np.pi/2, 200)
+        else:
+            t = np.linspace(0, np.pi, 200)
+            
+        r = np.zeros_like(t) + self.STD
+        self.ax.plot(t, r, 'k--', label='_')
+
+        self.samplePoints = [l]
+
+
+    def add_sample(self, STD, r, *args, **kwargs):
+        # Garantir que correlações negativas não sejam plotadas se positive_only=True
+        if self.positive_only and r < 0:
+            print(f"Warning: The correlation and the r is negative (positive_only=True)")
+            return None
+        angle = np.arccos(r)
+        l, = self.ax.plot(angle, STD, *args, **kwargs)
+        self.samplePoints.append(l)
+        return l
+
+    def add_contours(self, levels=5, **kwargs):
+        if self.positive_only:
+            ts = np.linspace(0, np.pi/2, 100)  # 0 a 90°
+        else:
+            ts = np.linspace(0, np.pi, 100)    # 0 a 180°
+            
+        rs = np.linspace(self.smin, self.smax, 100)
+        RS, TS = np.meshgrid(rs, ts)
+        RMSE = np.sqrt(
+            np.power(self.STD, 2) + np.power(RS, 2) -
+            (2.0 * self.STD * RS * np.cos(TS))
+        )
+        contours = self.ax.contour(TS, RS, RMSE, levels, **kwargs)
+        
+        if 'label' in kwargs:    
+            proxy = Line2D([0], [0], 
+                        linestyle=kwargs.get('linestyle', '--'),
+                        color=kwargs.get('colors', kwargs.get('color', 'darkred')), 
+                        linewidth=kwargs.get('linewidths', kwargs.get('linewidth', 0.7)),
+                        label=kwargs['label'])
+            self.samplePoints.append(proxy)
+        
+        return contours
+
+def params_RMSE(diagram, colors='darkred', linewidths=0.7, label='RMSE', 
+                linestyles='--', fontsize=10, inline=True):
+    contours = diagram.add_contours(
+        colors=colors, 
+        linewidths=linewidths, 
+        label=label,
+        linestyles=linestyles
+    )
+    if inline:
+        plt.clabel(contours, fontsize=fontsize)
+    return contours
+
+def PlotTaylorDiagram(obsSTD: Union[list[float], np.ndarray, pd.Series],
+         std_val_model: Union[list[float], np.ndarray, pd.Series], 
+         r_values: Union[list[float], np.ndarray, pd.Series], 
+         name_models: Union[list[str], np.ndarray, pd.Series],
+         grid_params: dict = None, 
+         font_params: dict = None,
+         savefig: bool = False,
+         name_fig: str='diagram.png',
+         dpi: int=600,
+         positive_only: bool =False,
+         title: str = None):
+    '''
+    Create a Taylor Diagram for model evaluation with interactive tooltips.
+    
+    Parameters:
+    -----------
+    obsSTD : float, list, np.ndarray, pd.Series
+        Observed standard deviation (reference value)
+        Standard deviation of the reference observational data
+    
+    std_val_model : list, np.ndarray, pd.Series
+        Standard deviation values from models
+        Model-predicted standard deviations to compare against observations
+    
+    r_values : list, np.ndarray, pd.Series
+        Correlation coefficients between models and observations
+        Pearson correlation coefficients (range: -1 to 1)
+    
+    name_models : list, np.ndarray, pd.Series
+        Names of the models for legend identification
+        Model identifiers for the legend
+    
+    grid_params : dict, optional
+        Grid customization parameters
+        Dictionary with keys:
+          - color_grid: str (default: 'gray')
+          - linestyle_grid: str (default: '-')
+          - linewidth_grid: float (default: 0.6)
+          - grid_alpha: float (default: 1)
+    
+    font_params : dict, optional
+        Font customization parameters
+        Dictionary with keys:
+          - font_family: str (default: 'serif')
+          - font_size: int (default: 12)
+          - font_weight: str (default: 'normal')
+    
+    savefig : bool, optional
+        Whether to save the figure (default: False)
+        Set to True to save the plot as image
+    
+    name_fig : str, optional
+        Filename for saving the figure (default: 'diagram.png')
+        Output filename when savefig=True
+    
+    dpi : int, optional
+        DPI resolution for saved figure (default: 600)
+        Image resolution quality
+    
+    positive_only : bool, optional
+        Show only positive correlations (0 to 1) (default: False)
+        If True, restricts display to positive correlation quadrant
+    
+    title : str, optional
+        Plot title (default: None)
+        Title text for the diagram
+    
+    '''
+    s, r, l = std_val_model, r_values, name_models
+    
+    # Tamanho de figura diferente para positive_only
+    if positive_only:
+        fig = plt.figure(figsize=(8, 6))  # For positive correlations Figura menor para apenas 90°
+    else:
+        fig = plt.figure(figsize=(12, 8))  # For negative correlations 180°
+    
+    #  Default configuration for grid Params
+    default_grid_params = {
+        'color_grid': 'gray',
+        'linestyle_grid': '-',
+        'linewidth_grid': 0.6,
+        'grid_alpha': 1
+    }
+
+    # Default configuration for font params
+    default_font_params = {
+        'font_family': 'Georgia',
+        'font_size': 12,
+        'font_weight': 'normal'
+    }
+    
+    # Mergin params from user
+    if grid_params:
+        default_grid_params.update(grid_params)
+    if font_params:
+        default_font_params.update(font_params)
+    
+    # Combine params from user
+    all_params = {**default_grid_params, **default_font_params}
+    all_params['positive_only'] = positive_only
+    # Acessing class Taylor Diagram
+    diagram = TaylorDiagram(obsSTD, fig=fig, rect=111, label='Observed',title=title, **all_params)
+
+    #Utils params From RMSE 
+    params_RMSE(diagram=diagram,
+    colors='darkred', 
+    linewidths=0.8, 
+    label='RMSE',
+    linestyles='--',
+    fontsize=10,
+    inline=True)
+    
+    # Input the point into graphics 
+    cs = plt.matplotlib.cm.Set1(np.linspace(0, 1, len(l)))
+    srlc = zip(s, r, l, cs)
+    for i in srlc:
+        diagram.add_sample(i[0], i[1], label=i[2], c=i[3], marker='s')
+    spl = [p.get_label() for p in diagram.samplePoints]
+    
+    # Legend Params
+    fig.legend(
+        diagram.samplePoints,
+        spl,
+        numpoints=1,
+        prop=dict(size='medium', 
+                 family=default_font_params['font_family'], 
+                 weight=default_font_params['font_weight']),
+        loc='center left',
+        bbox_to_anchor=(0.9, 0.85) # multiple (0.82, 0.8)
+    )
+    
+    plt.tight_layout(pad=0)
+    if savefig == True:
+        plt.savefig(name_fig, dpi=dpi, bbox_inches='tight')
+    return plt.show()
