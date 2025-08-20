@@ -7,7 +7,6 @@ I recomend use Ultra Violet
 pip install uv
 ```
 
-
 ``` bash 
 uv pip install git+https://github.com/fernandoACF28/TaylorDiagram.git
 
@@ -17,6 +16,6 @@ For update
 
 ``` bash 
 
-uv pip install --upgrade --force-reinstall git+https://github.com/fernandoACF28/nasa_functions.git
+uv pip install --upgrade --force-reinstall git+https://github.com/fernandoACF28/TaylorDiagram.git
 
 ```
