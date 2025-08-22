@@ -20,27 +20,63 @@ class TaylorDiagram(object):
                  fontfamily_xlabel: str ='Georgia',
                  positive_only:bool=False,
                  title: str = None,
+                 corr_range = None,
                  ylabel:str = 'Correlation Coeficient',
-                 xlabel:str='Standard Value'): # Valor de correlação no ângulo de 0°
+                 xlabel:str='Standard Value'):
         
         self.STD = STD
         self.smin = 0.0
         self.smax = 1.5 * self.STD
         self.positive_only = positive_only
-                
+        self.corr_range = corr_range
+
         tr = PolarAxes.PolarTransform()
         
-        if positive_only:
-            rlocs = np.array([0.0, 0.2, 0.4, 0.6, 0.8, 0.9, 0.95, 0.99, 1.0])
-            extremes = (0, np.pi/2, self.smin, self.smax) 
-        else:
-            self.smin = -0.01
-            positive_rlocs = np.array([0.0, 0.2, 0.4, 0.6, 0.8, 0.9, 0.95, 0.99])
-            negative_rlocs = np.array([-0.2, -0.4, -0.6, -0.8, -0.9, -0.95, -0.99, -1.0])
-            rlocs = np.concatenate([negative_rlocs, positive_rlocs])
-            extremes = (0, np.pi, self.smin, self.smax)
+        def law_of_transform(corr_range):
+            rlocs = np.linspace(corr_range[0], corr_range[1], 6)
+            
+            # Inversion of lawn:
+            # angle = pi * (1 - corr)
+            tlocs = np.pi * (1 - rlocs)
+            # extremes angles
+            angle_min = np.pi * (1 - corr_range[1])
+            angle_max = np.pi * (1 - corr_range[0])
+            return tlocs, (angle_min, angle_max, self.smin, self.smax), rlocs
+        # def law_of_transform(corr_range):
+        #     rlocs = np.linspace(corr_range[0], corr_range[1], 6)
+            
+        #     # Transformação não-linear para melhor distribuição
+        #     # ângulo = (π/2) * (1 - correlação) / (1 - corr_range[0])
+        #     scale = 1 - corr_range[0]  # 0.4 para (0.6,1)
+        #     tlocs = (np.pi/2) * (1 - rlocs) / scale
+            
+        #     angle_min = 0  # corr=1.0
+        #     angle_max = np.pi/2  # corr=0.6 → 90°
+            
+        #     return tlocs, (angle_min, angle_max, self.smin, self.smax), rlocs
         
-        tlocs = np.arccos(rlocs)
+        # define var to initialize
+        rlocs, tlocs, extremes = None, None, None
+        if positive_only:
+            if corr_range is None:
+                rlocs = np.array([0.0, 0.2, 0.4, 0.6, 0.8, 0.9, 0.95, 0.99, 1.0])
+                tlocs = np.arccos(rlocs)
+                extremes = (0, np.pi/2, self.smin, self.smax)  
+            else:
+                tlocs, extremes, rlocs = law_of_transform(corr_range)
+        else:
+            if corr_range is None:
+                self.smin = -0.01
+                positive_rlocs = np.array([0.0, 0.2, 0.4, 0.6, 0.8, 0.9, 0.95, 0.99])
+                negative_rlocs = np.array([-0.2, -0.4, -0.6, -0.8, -0.9, -0.95, -0.99, -1.0])
+                rlocs = np.concatenate([negative_rlocs, positive_rlocs])
+                tlocs = np.arccos(rlocs)
+                extremes = (0, np.pi, self.smin, self.smax)
+            else:
+                tlocs, extremes, rlocs = law_of_transform(corr_range)
+        
+        if rlocs is None or tlocs is None or extremes is None:
+            raise ValueError("Error in value of axis")
         gl1 = gf.FixedLocator(tlocs)
         tf1 = gf.DictFormatter(dict(zip(tlocs, map(str, rlocs))))
         
@@ -51,11 +87,15 @@ class TaylorDiagram(object):
             tick_formatter1=tf1
         )
         
-        if fig is None:
-            fig = plt.figure(figsize=(8, 6) if positive_only else (12, 8))  
-        
+
+        self.rlocs = rlocs
+        self.tlocs = tlocs
+        self.extremes = extremes
+        self.gh = gh  # 
+  
         ax = fa.FloatingSubplot(fig, rect, grid_helper=gh)
         fig.add_subplot(ax)
+        
         # Config AXES
         ax.axis['right'].set_axis_direction('top')
         ax.axis['left'].set_axis_direction('bottom')
@@ -97,11 +137,8 @@ class TaylorDiagram(object):
             ax.axis['top'].label.set_pad(-460)
             ax.axis['top'].label.set_rotation(180)
 
-
-
-
         
-        # Aplicar configurações de fonte
+        # Aplying config of font family
         kinds = ['top', 'bottom', 'right', 'left']
         for kind in kinds:
             ax.axis[kind].major_ticklabels.set_fontname(fontfamily)
@@ -125,7 +162,7 @@ class TaylorDiagram(object):
                                 pad=20)
         
         l, = self.ax.plot([0], self.STD, 'k*', ls='', ms=8, label=label)
-        
+
         if positive_only:
             t = np.linspace(0, np.pi/2, 200)
         else:
@@ -133,33 +170,57 @@ class TaylorDiagram(object):
             
         r = np.zeros_like(t) + self.STD
         self.ax.plot(t, r, 'k--', label='_')
-
+    
         self.samplePoints = [l]
 
+    
     def add_sample(self, STD, r, *args, **kwargs):
-        # Garantir que correlações negativas não sejam plotadas se positive_only=True
         if self.positive_only and r < 0:
             print(f"Warning: The correlation and the r is negative (positive_only=True)")
             return None
-        angle = np.arccos(r)
+        
+        if hasattr(self, 'corr_range') and self.corr_range is not None:
+            angle = np.pi * (1 - r)
+            print("Warning These Function are Limited are 0.5 to 1.0!!")
+        else:
+            angle = np.arccos(r)
         l, = self.ax.plot(angle, STD, *args, **kwargs)
         self.samplePoints.append(l)
         return l
 
+
     def add_contours(self, levels=5, **kwargs):
-        if self.positive_only:
-            ts = np.linspace(0, np.pi/2, 100)  # 0 a 90°
-        else:
-            ts = np.linspace(0, np.pi, 100)    # 0 a 180°
+        if hasattr(self, 'corr_range') and self.corr_range is not None:
+            if self.positive_only:
+                correlations = np.linspace(self.corr_range[0], self.corr_range[1], 100)
+            else:
+                correlations = np.linspace(-1, 1, 200)
             
-        rs = np.linspace(self.smin, self.smax, 100)
-        RS, TS = np.meshgrid(rs, ts)
-        RMSE = np.sqrt(
-            np.power(self.STD, 2) + np.power(RS, 2) -
-            (2.0 * self.STD * RS * np.cos(TS))
-        )
-        contours = self.ax.contour(TS, RS, RMSE, levels, **kwargs)
-        
+            rs = np.linspace(self.smin, self.smax, 100)
+            CORRS, RS = np.meshgrid(correlations, rs)
+            
+            RMSE = np.sqrt(
+                np.power(self.STD, 2) + np.power(RS, 2) -
+                (2.0 * self.STD * RS * CORRS)
+            )
+            ANGLES = np.pi * (1 - CORRS)
+            contours = self.ax.contour(ANGLES, RS, RMSE, levels, **kwargs)
+            
+        else:
+            if self.positive_only:
+                ts = np.linspace(0, np.pi/2, 100)  # 0 a 90
+            else:
+                ts = np.linspace(0, np.pi, 100)    # 0 a 180
+
+            rs = np.linspace(self.smin, self.smax, 100)
+            RS, TS = np.meshgrid(rs, ts)
+            RMSE = np.sqrt(
+                np.power(self.STD, 2) + np.power(RS, 2) -
+                (2.0 * self.STD * RS * np.cos(TS))
+            )
+            contours = self.ax.contour(TS, RS, RMSE, levels, **kwargs)
+
+        # lines of RMSE
         if 'label' in kwargs:    
             proxy = Line2D([0], [0], 
                         linestyle=kwargs.get('linestyle', '--'),
@@ -167,7 +228,7 @@ class TaylorDiagram(object):
                         linewidth=kwargs.get('linewidths', kwargs.get('linewidth', 0.7)),
                         label=kwargs['label'])
             self.samplePoints.append(proxy)
-            return contours
+        return contours
                 
 
 
@@ -187,6 +248,7 @@ def PlotTaylorDiagram(obsSTD: Union[list[float], np.ndarray, pd.Series],
          std_val_model: Union[list[float], np.ndarray, pd.Series], 
          r_values: Union[list[float], np.ndarray, pd.Series], 
          name_models: Union[list[str], np.ndarray, pd.Series],
+         corr_range,
          grid_params: dict = None, 
          font_params: dict = None,
          savefig: bool = False,
@@ -254,11 +316,8 @@ def PlotTaylorDiagram(obsSTD: Union[list[float], np.ndarray, pd.Series],
     '''
     s, r, l = std_val_model, r_values, name_models
     
-    # Tamanho de figura diferente para positive_only
-    if positive_only:
-        fig = plt.figure(figsize=(8, 6))  # For positive correlations Figura menor para apenas 90°
-    else:
-        fig = plt.figure(figsize=(12, 8))  # For negative correlations 180°
+    if positive_only: fig = plt.figure(figsize=(8, 6))  # For positive correlations 
+    else: fig = plt.figure(figsize=(12, 8))  # For negative correlations 
     
     #  Default configuration for grid Params
     default_grid_params = {
@@ -287,7 +346,7 @@ def PlotTaylorDiagram(obsSTD: Union[list[float], np.ndarray, pd.Series],
     all_params = {**default_grid_params, **default_font_params}
     all_params['positive_only'] = positive_only
     # Acessing class Taylor Diagram
-    diagram = TaylorDiagram(obsSTD, fig=fig, rect=111, label='Observed', title=title,
+    diagram = TaylorDiagram(obsSTD, fig=fig, rect=111, label='Observed', title=title,corr_range=corr_range,
                            **all_params)
 
     #Utils params From RMSE 
